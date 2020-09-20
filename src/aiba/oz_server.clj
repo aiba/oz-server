@@ -1,6 +1,10 @@
 (ns aiba.oz-server
-  (:require [cognitect.transit :as transit]
+  (:gen-class)
+  (:require [clojure.string :as str]
+            [clojure.tools.cli :refer [parse-opts]]
+            [cognitect.transit :as transit]
             [oz.core :as oz]
+            oz.server
             [ring.adapter.jetty :refer [run-jetty]]))
 
 (defn read-transit [^String x]
@@ -31,33 +35,35 @@
   (reset! *control-server
           (run-jetty #'control-handler {:port port, :join? false})))
 
-(def oz-server-port 7878)
-(def control-port 7879)
+;; main ————————————————————————————————————————————————————————————————————————————
 
-(defn -main [& args]
-  (oz/start-server! oz-server-port)
-  (println "oz-server running on port" oz-server-port)
+(def cli-options
+  [["-p" "--plot-port PORT" "Port number for oz plot server"
+    :default oz.server/default-port
+    :parse-fn #(Integer/parseInt %)]
+   ["-c" "--control-port PORT" "Port number for control server"
+    :default (inc oz.server/default-port)
+    :parse-fn #(Integer/parseInt %)]
+   ["-h" "--help"]])
+
+(comment
+  (parse-opts ["--help"] cli-options)
+  (println (:summary (parse-opts ["--help"] cli-options)))
+  (parse-opts ["--plot-port" "2000"] cli-options)
+  (parse-opts ["--blah" "2000"] cli-options)
+  (parse-opts ["-p2000"] cli-options)
+  (parse-opts ["-p2000" "--control-port" "3000"] cli-options)
+  )
+
+(defn main [{:keys [plot-port control-port]}]
+  (oz/start-server! plot-port)
+  (println "oz-server running on port" plot-port)
   (start-control-server! control-port)
   (println "control-server running on port" control-port))
 
-;; testing —————————————————————————————————————————————————————————————————————————
-
-(defn play-data [& names]
-  (for [n names
-        i (range 200)]
-    {:time i :item n :quantity (+ (Math/pow (* i (count n)) 0.8) (rand-int (count n)))}))
-
-(def line-plot
-  {:data {:values (play-data "monkey" "slipper" "broom")}
-   :encoding {:x {:field "time" :type "quantitative"}
-              :y {:field "quantity" :type "quantitative"}
-              :color {:field "item" :type "nominal"}}
-   :mark "line"})
-
-(comment
-  (-main)
-  (require '[clj-http.client :as http])
-  (:body (http/post (str "http://localhost:" control-port "/")
-                    {:body (write-transit {:method :view!
-                                           :args [line-plot]})}))
-  )
+(defn -main [& args]
+  (let [{:keys [options errors summary]} (parse-opts args cli-options)]
+    (cond
+      errors          (println (str/join "\n" errors) "\n\nUSAGE:\n\n" summary)
+      (:help options) (println errors "USAGE:\n\n" summary)
+      :else           (main options))))
