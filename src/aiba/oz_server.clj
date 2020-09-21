@@ -1,37 +1,33 @@
 (ns aiba.oz-server
   (:gen-class)
-  (:require [clojure.string :as str]
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str]
             [clojure.tools.cli :refer [parse-opts]]
-            [cognitect.transit :as transit]
             [oz.core :as oz]
             oz.server
-            [ring.adapter.jetty :refer [run-jetty]]))
+            [ring.adapter.jetty :refer [run-jetty]]
+            [ring.util.response :as response]
+            [taoensso.nippy :as nippy]))
 
-(defn read-transit [^String x]
-  (-> x
-      (.getBytes "UTF-8")
-      (java.io.ByteArrayInputStream.)
-      (transit/reader :json)
-      (transit/read)))
-
-(defn write-transit [x]
-  (let [out (java.io.ByteArrayOutputStream.)]
-    (transit/write (transit/writer out :json) x)
-    (.toString out)))
+(defn slurp-bytes [xin]
+  (with-open [xout (java.io.ByteArrayOutputStream.)]
+    (io/copy xin xout)
+    (.toByteArray xout)))
 
 (defn control-handler [req]
-  (let [{:keys [method args]} (-> req :body slurp read-transit)
+  (let [{:keys [method args]} (-> req :body slurp-bytes nippy/thaw)
         f (case method
             :view! oz/view!)]
-    {:status 200
-     :headers {"Content-Type" "application/transit+json; charset=utf-8"}
-     :body (write-transit (apply f args))}))
+    (-> (apply f args)
+        nippy/freeze
+        io/input-stream
+        response/response)))
 
 (defonce *control-server (atom nil))
 
 (defn start-control-server! [port]
   (when-let [s @*control-server]
-    (s))
+    (.stop s))
   (reset! *control-server
           (run-jetty #'control-handler {:port port, :join? false})))
 

@@ -1,6 +1,7 @@
 (ns aiba.oz-server-test
   (:require [aiba.oz-server :as oz-server]
-            [clj-http.client :as http]))
+            [clj-http.client :as http]
+            [taoensso.nippy :as nippy]))
 
 ;; testing —————————————————————————————————————————————————————————————————————————
 
@@ -21,12 +22,15 @@
 (def control-port 7879)
 
 (defn remote! [method & args]
-  (oz-server/read-transit
-   (:body (http/post (str "http://localhost:" control-port "/")
-                     {:body (oz-server/write-transit {:method method
-                                                      :args args})}))))
+  (nippy/thaw
+   (:body (http/request
+           {:url (str "http://localhost:" control-port "/")
+            :method :post
+            :body (nippy/freeze {:method method :args args})
+            :as :byte-array}))))
 
 (comment
   (oz-server/-main "--control-port" "7879")
   (remote! :view! (line-plot))
+  (oz-server/start-control-server! control-port)
   )
